@@ -1,19 +1,32 @@
-import Control.Monad (MonadPlus, msum)
-import Happstack.Server (BodyPolicy, FilterMonad, Response, Method(GET, POST), ServerMonad,
-                         decodeBody, defaultBodyPolicy, look, method, methodM, nullConf, simpleHTTP, toResponse, ok, dir, path)
+import Control.Concurrent.STM.TVar (TVar, newTVarIO, modifyTVar', readTVarIO)
+import Control.Monad (msum)
+import Control.Monad.IO.Class (liftIO)
+import Control.Monad.STM (atomically)
+import Data.Map.Strict (Map, empty, findWithDefault, insert)
+import Happstack.Server (BodyPolicy, ServerPartT, decodeBody, defaultBodyPolicy, look, nullConf, simpleHTTP, ok, dir)
+
+type KeyValue = Map String String
 
 main :: IO ()
-main = simpleHTTP nullConf $ do
-    decodeBody decodePolicy
-    msum [ get, set ]
+main = do
+    keyValueRef <- newTVarIO (empty :: KeyValue)
+    simpleHTTP nullConf $ do
+        decodeBody decodePolicy
+        msum [ get keyValueRef, set keyValueRef ]
 
 decodePolicy :: BodyPolicy
-decodePolicy = (defaultBodyPolicy "/tmp/" 0 1000 1000)
+decodePolicy = defaultBodyPolicy "/tmp/" 0 1000 1000
 
-set = dir "set" $ do
-    method POST
-    path $ \p -> do
+set :: TVar KeyValue -> ServerPartT IO String
+set keyValueRef = dir "set" $ do
+        key <- look "key"
         value <- look "value"
-        ok ("You want to set key: " ++ p ++ ", with value: " ++ value ++ "\n")
+        liftIO $ atomically $ modifyTVar' keyValueRef (insert key value)
+        ok ("SET " ++ key ++ ": " ++ value ++ "\n")
 
-get = dir "get" $ (method GET  >> (path $ \p -> ok ("You want to get key: " ++ p ++ "\n")))
+get :: TVar KeyValue -> ServerPartT IO String
+get keyValueRef = dir "get" $ do
+        key <- look "key"
+        keyValue <- liftIO $ readTVarIO keyValueRef
+        let value = findWithDefault "" key keyValue
+        ok ("GET " ++ key ++ ": " ++ value ++ "\n")
