@@ -29,4 +29,4 @@ get keyValueRef = dir "get" $ do
         key <- look "key"
         keyValue <- liftIO $ readTVarIO keyValueRef
         let value = findWithDefault "" key keyValue
-        ok ("GET " ++ key ++ ": " ++ value ++ "\n")
+        ok value
